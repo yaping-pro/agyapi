@@ -1,0 +1,35 @@
+#!/bin/sh
+# agy-login — run an interactive Antigravity login that writes the token file
+# the gateway reads.
+#
+# The gateway never needs the vendor CLI to *run*; it only needs a credential.
+# That credential is produced by an interactive OAuth handshake, which is what
+# this script drives.
+#
+# Note: the CLI tries to store its token in the macOS Keychain. Because HOME is
+# isolated below, macOS may show
+#   A keychain cannot be found to store "antigravity"
+# Click Cancel — the CLI then falls back to file storage at the path printed
+# below, which is exactly where the gateway reads it.
+
+set -eu
+
+AGY_ROOT="${AGY_ROOT:-$HOME/.local/share/agyapi}"
+AGY_HOME="${AGY_HOME:-$AGY_ROOT/home}"
+AGY_BIN="${AGY_BIN:-$AGY_ROOT/bin/agy-patched}"
+AGY_TOKEN="$AGY_HOME/.gemini/antigravity-cli/antigravity-oauth-token"
+
+if [ ! -x "$AGY_BIN" ]; then
+  echo "agy-login: no executable at $AGY_BIN" >&2
+  echo "           set AGY_BIN=<path to an agy binary> and retry" >&2
+  exit 1
+fi
+
+mkdir -p "$AGY_HOME"
+echo "Antigravity login"
+echo "  HOME   : $AGY_HOME"
+echo "  token  : $AGY_TOKEN"
+echo "  verify : curl -s http://127.0.0.1:7862/health"
+echo
+
+exec env HOME="$AGY_HOME" "$AGY_BIN" "$@"

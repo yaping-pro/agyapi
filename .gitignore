@@ -1,0 +1,26 @@
+# Binaries
+/agyapi
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Logs & profiles
+*.log
+*.pprof
+
+# Secrets — never commit credentials
+.env
+.env.*
+*token*.json
+credentials/
+*.key
+*.pem
+!*_test.go
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

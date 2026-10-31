@@ -35,7 +35,6 @@ never introduce a `require` block.
 | `internal/antigravity` | upstream HTTP transport + SSE reader |
 | `internal/auth` | OAuth token file + refresh |
 | `internal/openai` | wire types shared by the HTTP layer |
-| `internal/print` | legacy CLI-subprocess backend (see `docs/architecture.md`) |
 
 ## Commit style
 
@@ -61,7 +60,7 @@ docs(readme): document credential recovery
 Include:
 
 - `agyapi` version / commit
-- backend (`native` or `print`), model selector
+- model selector
 - the exact upstream status + body if visible in the logs
 - whether the failure is per-request or persistent
 

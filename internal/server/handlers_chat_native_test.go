@@ -99,7 +99,6 @@ func newNativeConfig(t *testing.T, upstreamURL string) *config.Config {
 	return &config.Config{
 		Host:           "127.0.0.1",
 		Port:           0,
-		Backend:        "native",
 		TokenPath:      tokenPath,
 		Project:        "aicode-consumers",
 		UpstreamURL:    upstreamURL,

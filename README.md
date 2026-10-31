@@ -1,7 +1,9 @@
 # agyapi
 
-**Turn a region-locked Antigravity account into a local OpenAI-compatible API —
-without a patched vendor binary, without a subprocess, without a VPN.**
+[简体中文](README.zh-CN.md) · **English**
+
+**Turn a region-blocked Antigravity account into a local OpenAI-compatible API —
+no patched binary, no subprocess, no VPN.**
 
 ```bash
 curl -s http://127.0.0.1:7862/v1/chat/completions \
@@ -11,17 +13,22 @@ curl -s http://127.0.0.1:7862/v1/chat/completions \
 
 ---
 
-## The problem
+## Why this exists
 
-An Antigravity account can be valid and still be unusable, because the vendor
-CLI checks your region **on the client**:
+I pay for **Google AI Pro**. My account works everywhere the subscription is
+sold — except the vendor CLI decides I am in **China** and refuses to start:
 
 ```text
 error: Eligibility check failed: Your current account is not eligible for
 Antigravity, because it is not currently available in your location.
 ```
 
-The backend, meanwhile, keeps serving that same account:
+So: a paid subscription, a working credential, and a tool that will not run. The
+usual workarounds — patching the binary, wrapping it, forcing the traffic through
+TUN mode — are fragile: every CLI update re-breaks them, and none of them fix
+the real issue, which is that the check is in the wrong place.
+
+It is in the wrong place. The backend answers differently for the same account:
 
 ```json
 POST /v1internal:loadCodeAssist
@@ -33,15 +40,13 @@ POST /v1internal:loadCodeAssist
 ```
 
 `currentTier` is granted. The location reason is attached only to the unused
-`free-tier` entry. A request to `v1internal:streamGenerateContent` carrying that
+`free-tier` entry. A request to `v1internal:streamGenerateContent` with that
 account's OAuth token returns `200` and real completions.
 
 **The region gate is cosmetic at the transport layer.** `agyapi` therefore
 ignores the CLI entirely: it speaks the upstream protocol directly over HTTPS and
-exposes it as `/v1/chat/completions`.
-
-Consequence worth stating plainly: **you do not need a patched CLI, a wrapper
-script, or a TUN-mode proxy.** If you already maintain one, this replaces it.
+exposes it as `/v1/chat/completions`. If you already maintain a patched binary or
+a wrapper, this replaces it.
 
 ---
 
@@ -74,7 +79,7 @@ More: [docs/architecture.md](docs/architecture.md) ·
 ### Requirements
 
 - Go 1.24+ to build (standard library only, no `require` block)
-- An Antigravity account, already logged in once on this machine
+- An Antigravity account, logged in once on this machine
 
 ### 1. Build
 
@@ -82,6 +87,8 @@ More: [docs/architecture.md](docs/architecture.md) ·
 git clone https://github.com/yaping-pro/agyapi.git && cd agyapi
 make build          # or: go build -o agyapi ./cmd/agyapi
 ```
+
+Or install directly: `go install github.com/yaping-pro/agyapi/cmd/agyapi@latest`.
 
 ### 2. Point it at your credential
 
@@ -92,33 +99,33 @@ The token file is whatever an interactive login produced. Default lookup:
 ~/.gemini/antigravity-cli/antigravity-oauth-token            # fallback
 ```
 
-Override with `-token-path` or `AGY_TOKEN_PATH`. The file is JSON with a
-`token.access_token` / `token.refresh_token` / `token.expiry` object; the gateway
+Override with `-token-path` or `AGY_TOKEN_PATH`. The file is JSON containing
+`token.access_token` / `token.refresh_token` / `token.expiry`; the gateway
 refreshes it in place (rotating the refresh token) and writes back atomically
 with mode `0600`.
 
-If you do not have one yet, run any interactive Antigravity login. A convenient
-wrapper that isolates `HOME` to the gateway data directory:
+No token yet? Run any interactive Antigravity login. A wrapper that isolates
+`HOME` to the gateway data directory ships with the repo:
 
 ```bash
-./scripts/agy-login    # writes the token the gateway reads
+./scripts/agy-login      # see docs/troubleshooting.md for the Keychain prompt
 ```
 
 ### 3. Run
 
 ```bash
-./agyapi                                  # 127.0.0.1:7862
-./agyapi -port 8080 -verbose              # verbose logs, never includes tokens
+./agyapi                          # 127.0.0.1:7862
+./agyapi -port 8080 -verbose
 ```
 
 ```bash
 curl -s http://127.0.0.1:7862/health
-# {"status":"ok","backend":"native","token_ready":true,...}
+# {"status":"ok","version":"1.1.0","token_ready":true,...}
 ```
 
 ### 4. Point a client at it
 
-Any OpenAI-compatible client works. Example (`models.yml` style):
+Any OpenAI-compatible client works:
 
 ```yaml
 providers:
@@ -150,11 +157,9 @@ Flags and environment variables are equivalent; flags win.
 | :--- | :--- | :--- | :--- |
 | `-host` | `HOST` | `127.0.0.1` | bind address |
 | `-port` | `PORT` | `7862` | listen port |
-| `-backend` | `AGY_BACKEND` | `native` | `native` (HTTP) or `print` (legacy CLI) |
 | `-token-path` | `AGY_TOKEN_PATH` | see above | OAuth token file |
 | `-project` | `AGY_PROJECT` | `aicode-consumers` | `cloudaicompanionProject` |
 | `-upstream-url` | `AGY_UPSTREAM_URL` | `https://daily-cloudcode-pa.googleapis.com` | upstream base |
-| `-agy-path` | `AGY_PATH` | gateway `bin/agy-patched` | CLI binary, `print` backend only |
 | `-default-model` | `DEFAULT_MODEL` | `gemini-3.8-flash-high` | fallback model |
 | `-max-concurrency` | `MAX_CONCURRENCY` | `4` | in-flight upstream requests |
 | `-verbose` | `VERBOSE` | `false` | debug logging |
@@ -177,24 +182,8 @@ Client selectors are mapped to upstream ids and a reasoning level:
 | `gpt-oss-120b-medium` | `gpt-oss-120b-medium` | — |
 | `gemini-3-flash` | `gemini-3-flash` | — |
 
-Legacy aliases (`gemini-4-argon-*`, `claude-*-5-5-*`, `claude-*-4-6`) still
-resolve. Unknown names are forwarded unchanged, so a newly granted model works
-without a code change. `GET /v1/models` lists what this build advertises.
-
----
-
-## Backends
-
-| Backend | Transport | Use when |
-| :--- | :--- | :--- |
-| `native` *(default)* | direct HTTPS | always, unless the upstream contract changes |
-| `print` | `agy` subprocess, text prompt, XML tool calls | last-resort fallback |
-
-`print` is kept for resilience, not recommended: it is subject to the CLI's
-16,384-token per-step input cap (which silently drops the tail of long
-conversations), its built-in tool loop (which can execute your task behind the
-caller's back), and its Keychain attempt (which raises a macOS dialog). The code
-lives under `internal/print/` and is labelled accordingly.
+Unknown names are forwarded unchanged, so a newly granted model works without a
+code change. `GET /v1/models` lists what this build advertises.
 
 ---
 
@@ -219,7 +208,6 @@ Details and disclosure process: [SECURITY.md](SECURITY.md).
   change without notice.
 - No image generation yet (`inlineData` input is supported; image output is not
   wired up).
-- The `print` backend inherits every CLI quirk.
 
 ---
 
@@ -233,11 +221,9 @@ make build
 
 Layout and conventions: [CONTRIBUTING.md](CONTRIBUTING.md).
 Release history: [CHANGELOG.md](CHANGELOG.md).
-The original subprocess-era design notes are preserved under `docs/design/` for
-provenance.
 
-If you publish this under your own module path, update the `module` line in
-`go.mod` so `go install <path>/cmd/agyapi@latest` resolves.
+Version lives in `internal/server/version.go` and is stamped by the linker, so
+`make build VERSION=1.2.0` produces a correctly self-reporting binary.
 
 ## License
 

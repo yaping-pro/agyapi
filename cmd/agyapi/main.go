@@ -28,27 +28,17 @@ func main() {
 	slog.Info("Starting agyapi service",
 		"host", cfg.Host,
 		"port", cfg.Port,
-		"backend", cfg.Backend,
 		"default_model", cfg.DefaultModel,
 		"max_concurrency", cfg.MaxConcurrency,
 	)
 
-	if cfg.Backend == "native" {
-		slog.Info("native backend configured",
-			"token_path", cfg.TokenPath,
-			"project", cfg.Project,
-			"upstream", cfg.UpstreamURL,
-		)
-		if _, err := os.Stat(cfg.TokenPath); err != nil {
-			slog.Warn("oauth token file not found; native requests will fail until authenticated", "path", cfg.TokenPath, "error", err)
-		}
-	} else {
-		slog.Info("print backend configured", "agy_path", cfg.AgyPath)
-		if _, err := os.Stat(cfg.AgyPath); err != nil {
-			slog.Warn("agy binary not found or inaccessible at configured path", "path", cfg.AgyPath, "error", err)
-		} else {
-			slog.Info("agy binary verified at path", "path", cfg.AgyPath)
-		}
+	slog.Info("native upstream configured",
+		"token_path", cfg.TokenPath,
+		"project", cfg.Project,
+		"upstream", cfg.UpstreamURL,
+	)
+	if _, err := os.Stat(cfg.TokenPath); err != nil {
+		slog.Warn("oauth token file not found; requests will fail until authenticated", "path", cfg.TokenPath, "error", err)
 	}
 
 	srv := server.NewServer(cfg)

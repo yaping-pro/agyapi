@@ -10,7 +10,7 @@ error: Eligibility check failed: Your current account is not eligible for
 Antigravity, because it is not currently available in your location.
 ```
 
-The backend, however, keeps serving that account. Verified by direct probe:
+Probing the same account directly gets a different answer:
 
 ```json
 POST /v1internal:loadCodeAssist
@@ -21,16 +21,16 @@ POST /v1internal:loadCodeAssist
 }
 ```
 
-`currentTier` is granted; only the `free-tier` entry carries the location
-reason. Requests to `v1internal:streamGenerateContent` with that account's OAuth
-token return `200` and real completions.
+`currentTier` is granted; the location reason hangs off the unused `free-tier`
+entry. A request to `v1internal:streamGenerateContent` carrying that account's
+OAuth token returns `200` and real completions.
 
 So the region gate is **cosmetic at the transport layer**. `agyapi` consumes the
 credential directly over HTTPS and never asks the vendor CLI whether it is
-allowed to run. That is why the native backend needs no binary patching, no
-wrapper, and no subprocess at all.
+allowed to run. That is why there is no binary patching, no wrapper, and no
+subprocess anywhere in this repository.
 
-## Two backends
+## One path, end to end
 
 ```text
                             ┌──────────────────────────────────────┐
@@ -40,50 +40,13 @@ wrapper, and no subprocess at all.
         └── POST /v1/chat ─►│  internal/openai   wire types        │
             /completions    │  internal/convert  translation       │
                             │  internal/auth     token file        │
+                            │  internal/antigravity  upstream I/O  │
                             └───────────────┬──────────────────────┘
-                                            │
-                 ┌──────────────────────────┴───────────────────────────┐
-                 │                                                      │
-       backend=native (default)                            backend=print (legacy)
-                 │                                                      │
-       internal/antigravity                                  internal/print/bridge
-                 │                                                      │
-   HTTPS → daily-cloudcode-pa.googleapis.com                 subprocess → agy CLI
-   /v1internal:streamGenerateContent?alt=sse                 (stdin: one text prompt)
-                 │                                                      │
-                 └──────────────► Google Cloud Code Assist ◄─────────────┘
+                                            │ HTTPS
+                                            ▼
+                        daily-cloudcode-pa.googleapis.com
+                        /v1internal:streamGenerateContent?alt=sse
 ```
-
-### `native` — default
-
-One HTTP request per turn. The conversation is a structured `contents[]` array;
-tools are `functionDeclarations`; the response is parsed from SSE chunks.
-
-Properties that matter:
-
-- **No prompt budget.** The vendor CLI truncates a single input step at
-  `max-tokens-per-step: 16384`, which silently amputates the tail of long
-  conversations — observed at a 279 KB prompt, where the user's most recent
-  instruction never reached the model. Direct HTTP has no such step.
-- **No competing tool loop.** The CLI exposes its own `run_command`; with
-  `permissions.allow: ["command(*)"]` it would happily execute the user's task
-  itself, invisibly, while the caller sees a plain-text answer and an
-  untouched todo list. With structured declarations there is exactly one tool
-  executor: the caller.
-- **Correct usage accounting.** `usageMetadata` is relayed, so clients that size
-  compaction windows from reported tokens stop believing every request cost 0.
-- **No Keychain.** The vendor CLI stores the token in the macOS Keychain when it
-  can; with an isolated `HOME` it raises
-  `A keychain cannot be found to store "antigravity"` and stalls for five
-  seconds before falling back to a file. The gateway only ever touches the file.
-
-### `print` — legacy
-
-Compiles the whole conversation into one prompt, pipes it to `agy`, and parses
-`<tool_call>` XML back out. It exists as a fallback if the HTTP contract changes.
-Every failure mode listed above belongs to it.
-
-## Request path (native)
 
 ```text
 1. server.handleChatNative
@@ -99,25 +62,55 @@ Every failure mode listed above belongs to it.
      POST {base}/v1internal:streamGenerateContent?alt=sse
      headers: Authorization, requestType, User-Agent
 5. antigravity.SSE → convert.ConvertChunk
-     text       → delta.content
-     thought    → delta.reasoning_content
+     text         → delta.content
+     thought      → delta.reasoning_content
      functionCall → delta.tool_calls (id carries thoughtSignature)
      usageMetadata → usage
 6. server.sseSink
      terminal chunk with finish_reason + usage, then data: [DONE]
 ```
 
+## Design decisions worth stating
+
+**No subprocess.** The obvious implementation drives the vendor CLI (pipe a
+compiled prompt to stdin, parse `<tool_call>` XML back). It was tried and
+removed; the four failures below are all direct consequences of that shape, and
+none of them are fixable from outside it:
+
+| Symptom | Cause |
+| :--- | :--- |
+| long conversations silently lose the latest instruction | CLI caps one input step at 16,384 tokens |
+| the caller's tool loop is bypassed | the CLI has its own `run_command` and will use it |
+| usage is always reported as 0 | the CLI's text output carries no token counts |
+| macOS dialog `A keychain cannot be found to store "antigravity"` | the CLI tries Keychain before file storage |
+
+Structured HTTP has none of these properties, and costs less code.
+
+**The translation layer is the product.** `internal/convert` is where an OpenAI
+request becomes a valid Gemini request: schema sanitizing (`$ref`, `allOf`,
+`const` unions, nullable types), history ordering, tool pairing, and the
+`thoughtSignature` round-trip. Everything else is plumbing.
+
+**`thoughtSignature` inside `tool_call_id`.** Upstream expects each tool turn to
+replay the signature it issued. OpenAI clients drop unknown fields but preserve
+ids verbatim, so the gateway appends `__thought__<signature>` to the id and
+splits on the first occurrence going back out.
+
+**Stateless.** Nothing is persisted but the credential. No conversation store, no
+prompt cache beyond `sessionId` affinity for upstream caching. Restarts are free.
+
+**Always re-read the token file.** Caching it in memory either serves a revoked
+token or clobbers a peer process's rotated refresh token. Google rotates the
+refresh token on every refresh, so the store re-reads before and after, and
+adopts a peer's state when it lost the race.
+
 ## Data ownership
 
 | State | Owner | Unit |
 | :--- | :--- | :--- |
 | OAuth credential | `internal/auth.Store` | one JSON file, `0600`, atomic rename |
-| Conversation | the caller | stateless per request; the gateway keeps no history |
-| Upstream session | `sessionId` derived from the first user message | stable across turns for prompt-cache affinity |
-
-The gateway is stateless by design: nothing is persisted except the credential.
-That makes restarts free and removes a whole class of "the proxy remembered
-something the client forgot" bugs.
+| Conversation | the caller | stateless per request |
+| Upstream session | `sessionId` derived from the first user message | stable across turns |
 
 ## Testing strategy
 

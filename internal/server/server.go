@@ -4,7 +4,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/yaping-pro/agyapi/internal/config"
@@ -20,18 +19,9 @@ func NewHandler(cfg *config.Config) http.Handler {
 	mux.HandleFunc("GET /v1/models", handleModels(cfg))
 	mux.HandleFunc("GET /v1/models/", handleModelDetail(cfg))
 	mux.HandleFunc("GET /v1/models/{model}", handleModelDetail(cfg))
-	mux.Handle("POST /v1/chat/completions", mw.LimitConcurrency(chatHandler(cfg)))
+	mux.Handle("POST /v1/chat/completions", mw.LimitConcurrency(handleChatNative(cfg)))
 
 	return mw.CORS(mux)
-}
-
-// chatHandler selects the upstream strategy. An empty Backend keeps the legacy
-// print-mode bridge so existing deployments and tests stay valid.
-func chatHandler(cfg *config.Config) http.Handler {
-	if strings.EqualFold(cfg.Backend, "native") {
-		return handleChatNative(cfg)
-	}
-	return handleChatCompletions(cfg)
 }
 
 // NewServer constructs and configures the HTTP server for agyapi.

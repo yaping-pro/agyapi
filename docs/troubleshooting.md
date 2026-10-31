@@ -7,12 +7,11 @@ curl -s http://127.0.0.1:7862/health
 ```
 
 ```json
-{"status":"ok","backend":"native","token_ready":true,"agy_available":false, ...}
+{"status":"ok","version":"1.1.0","token_ready":true, ...}
 ```
 
 - `token_ready: false` → the gateway could not read a usable token. See
-  [Token problems](#token-problems).
-- `backend: print` → you are on the legacy path; `agy_available` must be `true`.
+  [Token problems](#token-problems). Nothing else needs probing: there is one upstream path.
 
 ---
 
@@ -65,7 +64,7 @@ The upstream rejected the body. Usual causes:
 | Cause | Check |
 | :--- | :--- |
 | `functionResponse.name` does not match the issued `functionCall.name` | clients send only `tool_call_id`; the gateway recovers the name from history — a mismatch means the assistant turn was trimmed by the caller |
-| a tool schema keyword the backend rejects | decls must use `parametersJsonSchema` and pass through the sanitizer |
+| a tool schema keyword the upstream rejects | decls must use `parametersJsonSchema` and pass through the sanitizer |
 | an assistant `tool_calls` entry with no corresponding `tool` message | every call needs exactly one response before the next turn |
 
 Reproduce with the smallest payload that still fails, then bisect the messages.
@@ -83,14 +82,8 @@ Upstream capacity, not your request. Retry, or pick another family
 
 ### Streaming stops with `finish_reason: length`
 
-The model hit its output ceiling. Raise `max_tokens`, or let the caller
-continue the turn. On the `print` backend this symptom also appears when the CLI
-truncates the *input*; switch to `-backend native`.
-
-### Long conversations lose the latest instruction
-
-You are on `-backend print`: the CLI caps a single input step at 16,384 tokens
-and amputates the tail. Switch to `-backend native`.
+The model hit its output ceiling. Raise `max_tokens`, or let the caller continue
+the turn.
 
 ---
 
@@ -98,7 +91,7 @@ and amputates the tail. Switch to `-backend native`.
 
 ### The vendor CLI says the account is not available in this location
 
-Expected. The check is client-side; the backend still serves the account (see
+Expected. The check is client-side; the upstream API still serves the account (see
 [architecture.md](architecture.md#the-problem-this-solves)). `agyapi` bypasses
 the check by construction — it does not ask the CLI for permission.
 

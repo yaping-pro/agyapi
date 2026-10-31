@@ -3,7 +3,6 @@ package config
 import (
 	"flag"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 )
@@ -11,15 +10,9 @@ import (
 type Config struct {
 	Port           int
 	Host           string
-	AgyPath        string
 	DefaultModel   string
 	MaxConcurrency int
 	Verbose        bool
-
-	// Backend selects the upstream strategy: "native" talks to the
-	// v1internal HTTP API directly (no subprocess), "print" keeps the
-	// legacy agy CLI bridge.
-	Backend string
 	// TokenPath points at the Antigravity OAuth token JSON.
 	TokenPath string
 	// Project is the cloudaicompanionProject used in the envelope.
@@ -38,8 +31,6 @@ type Config struct {
 func (c *Config) BindFlags(fs *flag.FlagSet) {
 	fs.IntVar(&c.Port, "port", c.Port, "Port to listen on")
 	fs.StringVar(&c.Host, "host", c.Host, "Host to bind to")
-	fs.StringVar(&c.AgyPath, "agy-path", c.AgyPath, "Path to agy binary (print backend)")
-	fs.StringVar(&c.Backend, "backend", c.Backend, "Upstream backend: native or print")
 	fs.StringVar(&c.TokenPath, "token-path", c.TokenPath, "Path to Antigravity OAuth token file")
 	fs.StringVar(&c.Project, "project", c.Project, "cloudaicompanionProject for the upstream envelope")
 	fs.StringVar(&c.UpstreamURL, "upstream-url", c.UpstreamURL, "Cloud Code Assist base URL")
@@ -58,41 +49,17 @@ func defaultTokenPath(home string) string {
 	return filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
 }
 
-// resolveAgyPath picks the print-backend binary. The patched CLI under the
-// gateway data dir is preferred because the plain `agy` on PATH is no longer
-// installed (the native backend does not need a CLI at all).
-func resolveAgyPath(home string) string {
-	if home != "" {
-		patched := filepath.Join(home, ".local", "share", "agyapi", "bin", "agy-patched")
-		if _, err := os.Stat(patched); err == nil {
-			return patched
-		}
-		legacy := filepath.Join(home, ".local", "bin", "agy")
-		if _, err := os.Stat(legacy); err == nil {
-			return legacy
-		}
-	}
-	if p, err := exec.LookPath("agy"); err == nil {
-		return p
-	}
-	return "agy"
-}
-
 // Load initializes configuration with defaults, overrides them with environment variables,
 // and binds command line flags to flag.CommandLine.
 func Load() *Config {
 	home, _ := os.UserHomeDir()
-	defaultAgyPath := resolveAgyPath(home)
-
 	cfg := &Config{
 		Port:           7862,
 		Host:           "127.0.0.1",
-		AgyPath:        defaultAgyPath,
 		DefaultModel:   "gemini-3.8-flash-high",
 		MaxConcurrency: 4,
 		Verbose:        false,
 
-		Backend:       "native",
 		TokenPath:     defaultTokenPath(home),
 		Project:       "aicode-consumers",
 		UpstreamURL:   "https://daily-cloudcode-pa.googleapis.com",
@@ -113,9 +80,6 @@ func Load() *Config {
 	if envHost := os.Getenv("HOST"); envHost != "" {
 		cfg.Host = envHost
 	}
-	if envAgy := os.Getenv("AGY_PATH"); envAgy != "" {
-		cfg.AgyPath = envAgy
-	}
 	if envModel := os.Getenv("DEFAULT_MODEL"); envModel != "" {
 		cfg.DefaultModel = envModel
 	}
@@ -128,9 +92,6 @@ func Load() *Config {
 		cfg.Verbose = true
 	}
 
-	if v := os.Getenv("AGY_BACKEND"); v != "" {
-		cfg.Backend = v
-	}
 	if v := os.Getenv("AGY_TOKEN_PATH"); v != "" {
 		cfg.TokenPath = v
 	}

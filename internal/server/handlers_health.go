@@ -54,7 +54,7 @@ func handleHealth(cfg *config.Config, mw *Middleware) http.HandlerFunc {
 
 		resp := map[string]any{
 			"status":          "ok",
-			"version":         "1.0.0",
+			"version":         Version,
 			"backend":         backend,
 			"token_ready":     tokenReady,
 			"agy_available":   agyAvailable,

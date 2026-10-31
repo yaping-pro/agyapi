@@ -149,8 +149,8 @@ func TestHealthEndpoint(t *testing.T) {
 	if data["status"] != "ok" {
 		t.Errorf("expected status 'ok', got '%v'", data["status"])
 	}
-	if data["version"] != "1.0.0" {
-		t.Errorf("expected version '1.0.0', got '%v'", data["version"])
+	if v, _ := data["version"].(string); v == "" {
+		t.Errorf("expected non-empty version, got %v", data["version"])
 	}
 	if data["agy_available"] != true {
 		t.Errorf("expected agy_available true, got '%v'", data["agy_available"])

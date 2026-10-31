@@ -3,11 +3,14 @@
 # Everything is standard-library Go; there is no dependency to vendor.
 
 BINARY  := agyapi
+MODULE  := github.com/yaping-pro/agyapi
 PKG     := ./cmd/agyapi
 GOFILES := $(shell find . -name '*.go' -not -path './.git/*')
 
 GOFLAGS ?=
-LDFLAGS := -s -w
+# Single source of truth for the version; override with `make build VERSION=1.2.0`.
+VERSION ?= $(shell sed -n 's/^var Version = "\(.*\)"/\1/p' internal/server/version.go)
+LDFLAGS := -s -w -X $(MODULE)/internal/server.Version=$(VERSION)
 
 .PHONY: all build run test test-race vet fmt fmt-check check clean tidy
 
